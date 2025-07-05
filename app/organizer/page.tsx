@@ -147,6 +147,75 @@ async function createTickloCollection(walletInfo: any) {
   await window.petra.signAndSubmitTransaction(payload);
 }
 
+function getUserCollectionName(address: string) {
+  return `Ticklo Tickets - ${address.slice(0, 6)}`;
+}
+
+async function doesCollectionExistAptos(address: string, collectionName: string): Promise<boolean> {
+  const url = `https://indexer-testnet.staging.gcp.aptosdev.com/v1/accounts/${address}/collections`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return false;
+    const data = await res.json();
+    return (data?.collections || data)?.some?.((col: any) => col.collection_name === collectionName);
+  } catch {
+    return false;
+  }
+}
+
+async function createAptosCollection(walletInfo: any, collectionName: string) {
+  if (!window.petra || typeof window.petra.signAndSubmitTransaction !== 'function' || !walletInfo) {
+    throw new Error("Wallet not connected");
+  }
+
+  const payload = {
+    type: "entry_function_payload",
+    function: "0x3::token::create_collection_script",
+    type_arguments: [],
+    arguments: [
+      collectionName,
+      "Event tickets for Ticklo",
+      "https://raw.githubusercontent.com/amrit03b/ticklo/main/public/ticklo-logo.png",
+      1000, // maximum number of tokens in the collection
+      walletInfo.address, // royalty receiver address
+      100, // denominator
+      10,  // numerator (10% royalty)
+      {
+        description: true,
+        uri: true,
+        maximum: true
+      }
+    ],
+  };
+
+  await window.petra.signAndSubmitTransaction(payload);
+}
+
+
+async function mintAptosTicketNFT(event: Event, walletInfo: any, collectionName: string) {
+  if (!window.petra || typeof window.petra.signAndSubmitTransaction !== 'function' || !walletInfo) throw new Error("Wallet not connected");
+  const payload = {
+  type: "entry_function_payload",
+  function: "0x3::token::create_token_script",
+  type_arguments: [],
+  arguments: [
+    collectionName,
+    `${event.name} Ticket`,
+    event.description || "Event Ticket",
+    1, // supply
+    0, // max amount of mints per address
+    event.image_url || "https://raw.githubusercontent.com/amrit03b/ticklo/main/public/ticklo-logo.png",
+    walletInfo.address, // royalty address
+    0, // royalty points numerator
+    [], // property_keys
+    [], // property_values
+    [], // property_types
+  ],
+};
+
+  await window.petra.signAndSubmitTransaction(payload);
+}
+
 export default function OrganizerPage() {
   const [currentPage, setCurrentPage] = useState<"home" | "create" | "past">("home")
   const { status, walletInfo } = useWallet()
@@ -333,12 +402,12 @@ export default function OrganizerPage() {
     }
     setBuyingId(event.id);
     try {
-      // Check if collection exists first
-      const exists = await doesCollectionExist(walletInfo.address);
+      const collectionName = getUserCollectionName(walletInfo.address);
+      const exists = await doesCollectionExistAptos(walletInfo.address, collectionName);
       if (!exists) {
-        await createTickloCollection(walletInfo);
+        await createAptosCollection(walletInfo, collectionName);
       }
-      await buyTicketOnChain(event.organizer, event.id, walletInfo);
+      await mintAptosTicketNFT(event, walletInfo, collectionName);
       alert("Ticket purchased! Check your profile for your NFT ticket.");
       setEvents(await fetchAllEvents());
     } catch (err: any) {
