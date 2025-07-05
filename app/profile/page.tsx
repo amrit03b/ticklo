@@ -343,8 +343,8 @@ export default function ProfilePage() {
           </div>
         ) : (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {tickets.map((ticket, idx) => (
-              <Card key={ticket.token_id + idx} className="bg-white/5 border-white/10 rounded-3xl overflow-hidden hover:bg-white/10 transition-all duration-500 hover:scale-105 card-shadow group animate-fade-in">
+            {tickets.map((ticket) => (
+              <Card key={ticket.token_id} className="bg-white/5 border-white/10 rounded-3xl overflow-hidden hover:bg-white/10 transition-all duration-500 hover:scale-105 card-shadow group animate-fade-in">
                 <div className="relative h-48">
                   <Image
                     src={ticket.image_url && ticket.image_url !== "/placeholder.svg" ? ticket.image_url : "/ticklo-logo.png"}
