@@ -58,18 +58,15 @@ async function fetchUserNfts(address: string): Promise<NftTicket[]> {
         .filter((token: any) => {
           // Log the token for debugging
           console.log('Token object:', token);
-          // If current_token_data exists, filter by collection_id
-          if (token.current_token_data && token.current_token_data.collection_id) {
-            return token.current_token_data.collection_id.toLowerCase().includes("ticklo tickets");
-          }
-          // Otherwise, show all tokens (or add more fallback logic)
-          return true;
+          const desc = token?.current_token_data?.description?.toLowerCase() || "";
+          const name = token?.current_token_data?.token_name?.toLowerCase() || "";
+          return desc.includes("ticklo") || name.includes("ticklo");
         })
         .map((token: any) => ({
           name: token?.current_token_data?.token_name || token?.token_data_id || "Event Ticket",
           description: token?.current_token_data?.description || "Event ticket NFT",
           image_url: token?.current_token_data?.token_uri || "/ticklo-logo.png",
-          collection: token?.current_token_data?.collection_id || "Ticklo Tickets",
+          collection: token?.current_token_data?.description || "Ticklo Tickets",
           token_id: token?.token_data_id || `token_${Date.now()}`
         }));
     }
