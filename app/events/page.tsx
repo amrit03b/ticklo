@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -10,23 +10,64 @@ import Image from "next/image"
 import Link from "next/link"
 import { useWallet } from "@/contexts/WalletContext"
 
+const MODULE_ADDR = "0x70beae59414f2e9115a4eaace4edd0409643069b056c8996def20d6e8d322f1a"
+const MODULE_NAME = "new_event_manager"
+const MODULE = `${MODULE_ADDR}::${MODULE_NAME}`
+
 interface Event {
   id: number
-  title: string
+  name: string
   description: string
+  image_url: string
+  price: string
   date: string
   time: string
-  location: string
   venue: string
-  price: string
-  image: string
+  capacity: number
+  tickets_sold: number
+  status: string
   category: string
-  trending: boolean
-  featured: boolean
-  attendees: number
-  maxAttendees: number
-  rating: number
   organizer: string
+}
+
+async function fetchAllEvents(): Promise<Event[]> {
+  const organizers = [MODULE_ADDR]
+  let allEvents: Event[] = []
+  for (const addr of organizers) {
+    const url = `https://fullnode.testnet.aptoslabs.com/v1/accounts/${addr}/resource/${MODULE}::OrganizerEvents`
+    const res = await fetch(url)
+    if (!res.ok) continue
+    const data = await res.json()
+    const events = (data.data.events || []).map((e: any) => ({
+      id: Number(e.id),
+      name: e.name,
+      description: e.description,
+      image_url: e.image_url,
+      price: `${(Number(e.price) / 1e8).toFixed(2)} APT`,
+      date: e.date,
+      time: e.time,
+      venue: e.venue,
+      capacity: Number(e.capacity),
+      tickets_sold: Number(e.tickets_sold),
+      status: e.status,
+      category: e.category,
+      organizer: addr,
+    }))
+    allEvents = allEvents.concat(events)
+  }
+  return allEvents
+}
+
+async function buyTicketOnChain(organizer: string, eventId: number, walletInfo: any) {
+  if (!window.petra || typeof window.petra.signAndSubmitTransaction !== 'function' || !walletInfo) throw new Error("Wallet not connected");
+  const payload = {
+    type: "entry_function_payload",
+    function: `${MODULE}::buy_ticket`,
+    type_arguments: [],
+    arguments: [walletInfo.address, organizer, eventId],
+  }
+  const tx = await window.petra.signAndSubmitTransaction(payload)
+  await fetch(`https://fullnode.testnet.aptoslabs.com/v1/transactions/by_hash/${tx.hash}`)
 }
 
 export default function EventsPage() {
@@ -34,6 +75,8 @@ export default function EventsPage() {
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [isLoading, setIsLoading] = useState(true)
   const { status, walletInfo } = useWallet()
+  const [events, setEvents] = useState<Event[]>([])
+  const [buyingId, setBuyingId] = useState<number | null>(null)
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -42,75 +85,39 @@ export default function EventsPage() {
     return () => clearTimeout(timer)
   }, [])
 
-  const events: Event[] = [
-    {
-      id: 1,
-      title: "Neon Nights Festival",
-      description:
-        "Experience the ultimate electronic music festival with world-class DJs, stunning visuals, and an unforgettable atmosphere under the neon lights.",
-      date: "2024-08-15",
-      time: "20:00",
-      location: "New York City",
-      venue: "Cyber Arena",
-      price: "0.5 APT",
-      image: "/placeholder.svg?height=300&width=400",
-      category: "Music",
-      trending: true,
-      featured: true,
-      attendees: 1247,
-      maxAttendees: 2000,
-      rating: 4.8,
-      organizer: "NeonEvents",
-    },
-    {
-      id: 2,
-      title: "Web3 Summit 2024",
-      description:
-        "Join industry leaders, developers, and innovators for the most comprehensive Web3 conference of the year. Learn about the latest trends in blockchain technology.",
-      date: "2024-09-22",
-      time: "09:00",
-      location: "San Francisco",
-      venue: "Tech Hub Convention Center",
-      price: "1.2 APT",
-      image: "/placeholder.svg?height=300&width=400",
-      category: "Technology",
-      trending: false,
-      featured: true,
-      attendees: 856,
-      maxAttendees: 1500,
-      rating: 4.9,
-      organizer: "Web3Foundation",
-    },
-    {
-      id: 3,
-      title: "Digital Art Expo",
-      description:
-        "Discover the future of digital art and NFTs. Meet renowned digital artists, explore interactive installations, and witness the evolution of creative expression.",
-      date: "2024-10-05",
-      time: "14:00",
-      location: "Los Angeles",
-      venue: "Meta Gallery",
-      price: "0.3 APT",
-      image: "/placeholder.svg?height=300&width=400",
-      category: "Art",
-      trending: true,
-      featured: false,
-      attendees: 432,
-      maxAttendees: 800,
-      rating: 4.7,
-      organizer: "DigitalArtsCollective",
-    },
-  ]
+  useEffect(() => {
+    fetchAllEvents().then(evts => {
+      setEvents(evts)
+      setIsLoading(false)
+    })
+  }, [])
 
   const categories = ["all", "Music", "Technology", "Art", "Sports", "Business"]
 
   const filteredEvents = events.filter((event) => {
     const matchesSearch =
-      event.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      event.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       event.description.toLowerCase().includes(searchQuery.toLowerCase())
     const matchesCategory = selectedCategory === "all" || event.category === selectedCategory
     return matchesSearch && matchesCategory
   })
+
+  async function handleBuy(event: Event) {
+    if (!walletInfo) {
+      alert("Please connect your wallet to buy a ticket.")
+      return
+    }
+    setBuyingId(event.id)
+    try {
+      await buyTicketOnChain(event.organizer, event.id, walletInfo)
+      alert("Ticket purchased! Check your profile for your NFT ticket.")
+      // Optionally refetch events to update tickets_sold
+      setEvents(await fetchAllEvents())
+    } catch (err: any) {
+      alert("Failed to buy ticket: " + (err.message || err))
+    }
+    setBuyingId(null)
+  }
 
   if (isLoading) {
     return (
@@ -283,8 +290,8 @@ export default function EventsPage() {
                   >
                     <div className="relative h-64 overflow-hidden">
                       <Image
-                        src={event.image || "/placeholder.svg"}
-                        alt={event.title}
+                        src={event.image_url || "/placeholder.svg"}
+                        alt={event.name}
                         fill
                         className="object-cover group-hover:scale-110 transition-transform duration-700"
                       />
@@ -292,14 +299,19 @@ export default function EventsPage() {
 
                       {/* Badges */}
                       <div className="absolute top-4 left-4 flex flex-col gap-2">
-                        {event.featured && (
-                          <Badge className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white rounded-full font-semibold px-3 py-1">
-                            ⭐ Featured
+                        {event.status === "completed" && (
+                          <Badge className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-full font-semibold px-3 py-1">
+                            Completed
                           </Badge>
                         )}
-                        {event.trending && (
+                        {event.status === "ongoing" && (
                           <Badge className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-full font-semibold px-3 py-1 animate-pulse">
-                            🔥 Trending
+                            Ongoing
+                          </Badge>
+                        )}
+                        {event.status === "upcoming" && (
+                          <Badge className="bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-full font-semibold px-3 py-1 animate-pulse">
+                            Upcoming
                           </Badge>
                         )}
                       </div>
@@ -335,12 +347,12 @@ export default function EventsPage() {
                         </Badge>
                         <div className="flex items-center text-yellow-400">
                           <Star className="w-4 h-4 mr-1 fill-current" />
-                          <span className="text-white/80 font-medium">{event.rating}</span>
+                          <span className="text-white/80 font-medium">{event.tickets_sold}/{event.capacity} tickets sold</span>
                         </div>
                       </div>
 
                       <h3 className="text-2xl font-bold text-white mb-3 group-hover:text-white transition-colors">
-                        {event.title}
+                        {event.name}
                       </h3>
 
                       <p className="text-white/70 text-sm mb-6 line-clamp-2 leading-relaxed">{event.description}</p>
@@ -364,13 +376,7 @@ export default function EventsPage() {
                         <div className="flex items-center text-white/70 text-sm">
                           <MapPin className="w-4 h-4 mr-3 text-white" />
                           <span className="font-medium">
-                            {event.venue}, {event.location}
-                          </span>
-                        </div>
-                        <div className="flex items-center text-white/70 text-sm">
-                          <Users className="w-4 h-4 mr-3 text-white" />
-                          <span className="font-medium">
-                            {event.attendees}/{event.maxAttendees} attending
+                            {event.venue}, {event.venue}
                           </span>
                         </div>
                       </div>
@@ -382,8 +388,10 @@ export default function EventsPage() {
                         <Button
                           size="sm"
                           className="bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white border-0 rounded-xl px-6 py-2 font-semibold transition-all duration-300 hover:scale-105"
+                          disabled={event.tickets_sold >= event.capacity || !walletInfo || buyingId === event.id}
+                          onClick={() => handleBuy(event)}
                         >
-                          Book Now
+                          {event.tickets_sold >= event.capacity ? "Sold Out" : buyingId === event.id ? "Buying..." : walletInfo ? "Buy Ticket" : "Connect Wallet to Buy"}
                         </Button>
                       </div>
                     </CardContent>

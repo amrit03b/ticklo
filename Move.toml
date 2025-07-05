@@ -1,18 +1,14 @@
 [package]
-name = "event_manager"
+name = "new_event_manager"
 version = "1.0.0"
-authors = []
 
 [addresses]
 event_manager = "0x70beae59414f2e9115a4eaace4edd0409643069b056c8996def20d6e8d322f1a"
+aptos_token    = "0x3"
+
+[dependencies]
+AptosFramework = { git = "https://github.com/aptos-labs/aptos-core.git", rev = "mainnet", subdir = "aptos-move/framework/aptos-framework" }
+AptosToken     = { git = "https://github.com/aptos-labs/aptos-core.git", rev = "mainnet", subdir = "aptos-move/framework/aptos-token", addr_subst = { aptos_token = "0x3" } }
 
 [dev-addresses]
-
-event_manager = "0x70beae59414f2e9115a4eaace4edd0409643069b056c8996def20d6e8d322f1a"
-
-[dependencies.AptosFramework]
-git = "https://github.com/aptos-labs/aptos-framework.git"
-rev = "mainnet"
-subdir = "aptos-framework"
-
-[dev-dependencies]
+new_event_manager = "0x70beae59414f2e9115a4eaace4edd0409643069b056c8996def20d6e8d322f1a"

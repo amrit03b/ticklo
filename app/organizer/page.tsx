@@ -28,20 +28,22 @@ import {
 import Image from "next/image"
 import Link from "next/link"
 import { WalletModal } from "@/components/wallet-modal"
+import { uploadImageToPinata } from "@/lib/utils"
 
 interface Event {
   id: number
   name: string
   description: string
-  image: string
+  image_url: string
   price: string
   date: string
   time: string
   venue: string
   capacity: number
-  ticketsSold: number
-  status: "upcoming" | "ongoing" | "completed"
+  tickets_sold: number
+  status: string
   category: string
+  organizer: string // for filtering
 }
 
 // Helper types
@@ -58,24 +60,29 @@ interface OnChainEvent {
 }
 
 interface NewEvent {
-  name: string;
-  description: string;
-  image: string;
-  price: string;
-  date: string;
-  time: string;
-  venue: string;
-  capacity: string;
-  category: string;
+  name: string
+  description: string
+  image_url: string
+  price: string
+  date: string
+  time: string
+  venue: string
+  capacity: string
+  status: string
+  category: string
 }
 
-const APTOS_MODULE = "0x70beae59414f2e9115a4eaace4edd0409643069b056c8996def20d6e8d322f1a::event_manager";
+const MODULE_ADDR = "0x70beae59414f2e9115a4eaace4edd0409643069b056c8996def20d6e8d322f1a"
+const MODULE_NAME = "new_event_manager"
+const MODULE = `${MODULE_ADDR}::${MODULE_NAME}`
+
+const APTOS_MODULE = "0x70beae59414f2e9115a4eaace4edd0409643069b056c8996def20d6e8d322f1a::new_event_manager";
 
 async function createEventOnChain(walletInfo: any, newEvent: NewEvent) {
   if (!window.petra || typeof window.petra.signAndSubmitTransaction !== 'function' || !walletInfo) throw new Error("Wallet not connected");
   const payload = {
     type: "entry_function_payload",
-    function: `${APTOS_MODULE}::create_event`,
+    function: `${APTOS_MODULE}::new_create_event`,
     type_arguments: [],
     arguments: [
       newEvent.name,
@@ -102,15 +109,16 @@ async function fetchEventsForOrganizer(address: string): Promise<Event[]> {
     id: Number(e.id),
     name: e.name,
     description: e.description,
-    image: "/placeholder.svg?height=200&width=300", // No image on-chain
+    image_url: "/placeholder.svg?height=200&width=300", // No image on-chain
     price: `${(Number(e.price) / 1e8).toFixed(2)} APT`,
     date: e.date,
     time: e.time,
     venue: e.venue,
     capacity: Number(e.capacity),
-    ticketsSold: 0, // Not tracked on-chain yet
+    tickets_sold: 0, // Not tracked on-chain yet
     status: "completed", // Default for now
     category: e.category,
+    organizer: address,
   }));
 }
 
@@ -122,14 +130,19 @@ export default function OrganizerPage() {
   const [newEvent, setNewEvent] = useState<NewEvent>({
     name: "",
     description: "",
-    image: "",
+    image_url: "",
     price: "",
     date: "",
     time: "",
     venue: "",
     capacity: "",
+    status: "upcoming",
     category: "",
   })
+
+  const [editingEvent, setEditingEvent] = useState<Event | null>(null)
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const categories = ["Music", "Technology", "Art", "Sports", "Business"]
 
@@ -152,12 +165,13 @@ export default function OrganizerPage() {
       setNewEvent({
         name: "",
         description: "",
-        image: "",
+        image_url: "",
         price: "",
         date: "",
         time: "",
         venue: "",
         capacity: "",
+        status: "upcoming",
         category: "",
       })
       setCurrentPage("past")
@@ -189,6 +203,102 @@ export default function OrganizerPage() {
       color: "from-purple-500 to-pink-500",
     },
   ]
+
+  async function handleImageUpload(file: File): Promise<string> {
+    return await uploadImageToPinata(file)
+  }
+
+  async function createOrEditEventOnChain(walletInfo: any, event: NewEvent, editId?: number) {
+    if (!window.petra || typeof window.petra.signAndSubmitTransaction !== 'function' || !walletInfo) throw new Error("Wallet not connected");
+    const payload = {
+      type: "entry_function_payload",
+      function: editId !== undefined
+        ? `${MODULE}::edit_event`
+        : `${MODULE}::create_event`,
+      type_arguments: [],
+      arguments: editId !== undefined
+        ? [
+            editId,
+            event.name,
+            event.description,
+            Math.round(Number(event.price) * 1e8),
+            event.date,
+            event.time,
+            event.venue,
+            Number(event.capacity),
+            event.category,
+            event.status,
+            event.image_url,
+          ]
+        : [
+            event.name,
+            event.description,
+            Math.round(Number(event.price) * 1e8),
+            event.date,
+            event.time,
+            event.venue,
+            Number(event.capacity),
+            event.category,
+            event.status,
+            event.image_url,
+          ],
+    }
+    const tx = await window.petra.signAndSubmitTransaction(payload)
+    await fetch(`https://fullnode.testnet.aptoslabs.com/v1/transactions/by_hash/${tx.hash}`)
+  }
+
+  async function deleteEventOnChain(walletInfo: any, eventId: number) {
+    if (!window.petra || typeof window.petra.signAndSubmitTransaction !== 'function' || !walletInfo) throw new Error("Wallet not connected");
+    const payload = {
+      type: "entry_function_payload",
+      function: `${MODULE}::delete_event`,
+      type_arguments: [],
+      arguments: [eventId],
+    }
+    const tx = await window.petra.signAndSubmitTransaction(payload)
+    await fetch(`https://fullnode.testnet.aptoslabs.com/v1/transactions/by_hash/${tx.hash}`)
+  }
+
+  async function buyTicketOnChain(organizer: string, eventId: number, walletInfo: any) {
+    if (!window.petra || typeof window.petra.signAndSubmitTransaction !== 'function' || !walletInfo) throw new Error("Wallet not connected");
+    const payload = {
+      type: "entry_function_payload",
+      function: `${MODULE}::buy_ticket`,
+      type_arguments: [],
+      arguments: [walletInfo.address, organizer, eventId],
+    }
+    const tx = await window.petra.signAndSubmitTransaction(payload)
+    await fetch(`https://fullnode.testnet.aptoslabs.com/v1/transactions/by_hash/${tx.hash}`)
+  }
+
+  async function fetchAllEvents(): Promise<Event[]> {
+    // Only fetch from the new contract
+    const organizers = [MODULE_ADDR];
+    let allEvents: Event[] = [];
+    for (const addr of organizers) {
+      const url = `https://fullnode.testnet.aptoslabs.com/v1/accounts/${addr}/resource/${MODULE}::OrganizerEvents`;
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const events = (data.data.events || []).map((e: any) => ({
+        id: Number(e.id),
+        name: e.name,
+        description: e.description,
+        image_url: e.image_url,
+        price: `${(Number(e.price) / 1e8).toFixed(2)} APT`,
+        date: e.date,
+        time: e.time,
+        venue: e.venue,
+        capacity: Number(e.capacity),
+        tickets_sold: Number(e.tickets_sold),
+        status: e.status,
+        category: e.category,
+        organizer: addr,
+      }));
+      allEvents = allEvents.concat(events);
+    }
+    return allEvents;
+  }
 
   return (
     <div className="min-h-screen bg-black relative overflow-hidden grid-background">
@@ -244,7 +354,7 @@ export default function OrganizerPage() {
                     currentPage === "past" ? "text-white" : "text-white/70 hover:text-white"
                   }`}
                 >
-                  Past Events
+                  My Events
                 </button>
                 <Button
                   onClick={() => setIsWalletModalOpen(true)}
@@ -344,7 +454,47 @@ export default function OrganizerPage() {
 
                   <Card className="bg-white/5 backdrop-blur-md border-white/10 rounded-3xl p-8 lg:p-12 card-shadow">
                     <CardContent className="p-0">
-                      <form onSubmit={handleCreateEvent} className="space-y-8">
+                      <form onSubmit={async (e) => {
+                        e.preventDefault();
+                        setIsSubmitting(true);
+                        let imageUrl = newEvent.image_url;
+                        if (imageFile) {
+                          try {
+                            imageUrl = await handleImageUpload(imageFile);
+                          } catch (err) {
+                            alert("Image upload failed");
+                            setIsSubmitting(false);
+                            return;
+                          }
+                        }
+                        const eventToSubmit = { ...newEvent, image_url: imageUrl };
+                        try {
+                          if (editingEvent) {
+                            await createOrEditEventOnChain(walletInfo, eventToSubmit, editingEvent.id);
+                          } else {
+                            await createOrEditEventOnChain(walletInfo, eventToSubmit);
+                          }
+                          setNewEvent({
+                            name: "",
+                            description: "",
+                            image_url: "",
+                            price: "",
+                            date: "",
+                            time: "",
+                            venue: "",
+                            capacity: "",
+                            status: "upcoming",
+                            category: "",
+                          });
+                          setImageFile(null);
+                          setEditingEvent(null);
+                          setCurrentPage("past");
+                          setEvents(await fetchAllEvents());
+                        } catch (err: any) {
+                          alert("Failed to submit event: " + (err.message || err));
+                        }
+                        setIsSubmitting(false);
+                      }} className="space-y-8">
                         <div className="grid md:grid-cols-2 gap-8">
                           <div className="space-y-2">
                             <Label htmlFor="name" className="text-white text-lg font-medium">
@@ -413,25 +563,30 @@ export default function OrganizerPage() {
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="image" className="text-white text-lg font-medium">
-                            Event Image URL
+                          <Label htmlFor="image_upload" className="text-white text-lg font-medium">
+                            Event Image Upload
                           </Label>
-                          <div className="flex gap-4">
-                            <Input
-                              id="image"
-                              value={newEvent.image}
-                              onChange={(e) => setNewEvent({ ...newEvent, image: e.target.value })}
-                              placeholder="https://example.com/image.jpg"
-                              className="bg-white/10 border-white/20 text-white placeholder:text-white/50 rounded-xl p-4 text-lg"
-                            />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="border-white/20 text-white hover:bg-white/10 rounded-xl px-6 bg-transparent"
-                            >
-                              <Upload className="w-5 h-5" />
-                            </Button>
-                          </div>
+                          <input
+                            id="image_upload"
+                            type="file"
+                            accept="image/*"
+                            onChange={e => {
+                              if (e.target.files && e.target.files[0]) {
+                                setImageFile(e.target.files[0]);
+                              }
+                            }}
+                            className="block w-full text-white bg-white/10 border-white/20 rounded-xl p-4 text-lg"
+                          />
+                          {imageFile && (
+                            <div className="mt-2">
+                              <Image src={URL.createObjectURL(imageFile)} alt="Preview" width={200} height={120} className="rounded-xl" />
+                            </div>
+                          )}
+                          {!imageFile && newEvent.image_url && (
+                            <div className="mt-2">
+                              <Image src={newEvent.image_url} alt="Current" width={200} height={120} className="rounded-xl" />
+                            </div>
+                          )}
                         </div>
 
                         <div className="grid md:grid-cols-2 gap-8">
@@ -496,14 +651,40 @@ export default function OrganizerPage() {
                           </div>
                         </div>
 
+                        <div className="space-y-2">
+                          <Label htmlFor="status" className="text-white text-lg font-medium">
+                            Event Status
+                          </Label>
+                          <select
+                            id="status"
+                            value={newEvent.status}
+                            onChange={(e) => setNewEvent({ ...newEvent, status: e.target.value })}
+                            required
+                            className="w-full bg-white/10 border border-white/20 text-white rounded-xl p-4 text-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                          >
+                            <option value="" className="bg-black text-white">
+                              Select a status
+                            </option>
+                            <option value="upcoming" className="bg-black text-white">
+                              Upcoming
+                            </option>
+                            <option value="ongoing" className="bg-black text-white">
+                              Ongoing
+                            </option>
+                            <option value="completed" className="bg-black text-white">
+                              Completed
+                            </option>
+                          </select>
+                        </div>
+
                         <div className="pt-8">
                           <Button
                             type="submit"
                             size="lg"
                             className="w-full bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white border-0 rounded-2xl py-4 text-xl font-semibold transition-all duration-300 hover:scale-105 shadow-2xl"
+                            disabled={isSubmitting}
                           >
-                            <Plus className="w-6 h-6 mr-3" />
-                            Create Event
+                            {isSubmitting ? (editingEvent ? "Updating..." : "Creating...") : (editingEvent ? "Update Event" : "Create Event")}
                           </Button>
                         </div>
                       </form>
@@ -519,7 +700,7 @@ export default function OrganizerPage() {
               <div className="container mx-auto px-6">
                 <div className="text-center mb-12">
                   <h1 className="text-6xl font-bold text-white mb-6">
-                    Your <span className="text-white italic">Events</span>
+                    My <span className="text-white italic">Events</span>
                   </h1>
                   <p className="text-xl text-white/70 font-light">
                     Manage and track all your created events in one place
@@ -558,23 +739,21 @@ export default function OrganizerPage() {
                       >
                         <div className="relative h-48">
                           <Image
-                            src={event.image || "/placeholder.svg"}
+                            src={event.image_url || "/placeholder.svg"}
                             alt={event.name}
                             fill
                             className="object-cover group-hover:scale-110 transition-transform duration-500"
                           />
                           <div className="absolute top-4 right-4">
-                            <Badge
-                              className={`${
-                                event.status === "completed"
-                                  ? "bg-gradient-to-r from-emerald-500 to-teal-500"
-                                  : event.status === "ongoing"
-                                    ? "bg-gradient-to-r from-orange-500 to-red-500"
-                                    : "bg-gradient-to-r from-blue-500 to-indigo-500"
-                              } text-white rounded-full font-semibold px-3 py-1`}
-                            >
+                            <span className={`px-3 py-1 rounded-full text-xs font-bold text-white ${
+                              event.status === "completed"
+                                ? "bg-gradient-to-r from-emerald-500 to-teal-500"
+                                : event.status === "ongoing"
+                                ? "bg-gradient-to-r from-orange-500 to-red-500"
+                                : "bg-gradient-to-r from-blue-500 to-indigo-500"
+                            }`}>
                               {event.status.charAt(0).toUpperCase() + event.status.slice(1)}
-                            </Badge>
+                            </span>
                           </div>
                         </div>
                         <CardContent className="p-6">
@@ -599,7 +778,7 @@ export default function OrganizerPage() {
                             <div className="flex items-center text-white/70 text-sm">
                               <Users className="w-4 h-4 mr-2" />
                               <span>
-                                {event.ticketsSold}/{event.capacity} tickets sold
+                                {event.tickets_sold}/{event.capacity} tickets sold
                               </span>
                             </div>
                             <div className="flex items-center text-white/70 text-sm">
@@ -627,9 +806,68 @@ export default function OrganizerPage() {
                             </div>
                             <div className="flex items-center text-white/70 text-sm">
                               <TrendingUp className="w-4 h-4 mr-1" />
-                              {Math.round((event.ticketsSold / event.capacity) * 100)}%
+                              {Math.round((event.tickets_sold / event.capacity) * 100)}%
                             </div>
                           </div>
+
+                          {walletInfo && event.organizer === walletInfo.address && (
+                            <div className="flex space-x-2 mt-4">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="border-white/20 text-white hover:bg-white/10 bg-transparent"
+                                onClick={() => {
+                                  setEditingEvent(event);
+                                  setNewEvent({
+                                    name: event.name,
+                                    description: event.description,
+                                    image_url: event.image_url,
+                                    price: event.price.replace(" APT", ""),
+                                    date: event.date,
+                                    time: event.time,
+                                    venue: event.venue,
+                                    capacity: String(event.capacity),
+                                    status: event.status,
+                                    category: event.category,
+                                  });
+                                  setCurrentPage("create");
+                                }}
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                className="border-white/20 text-white hover:bg-red-500/20 bg-transparent"
+                                onClick={async () => {
+                                  if (!window.confirm("Are you sure you want to delete this event?")) return;
+                                  setIsSubmitting(true);
+                                  try {
+                                    await deleteEventOnChain(walletInfo, event.id);
+                                    // Poll until the event is removed from the blockchain
+                                    let removed = false;
+                                    for (let i = 0; i < 10; i++) {
+                                      const updatedEvents = await fetchAllEvents();
+                                      if (!updatedEvents.find(e => e.id === event.id)) {
+                                        setEvents(updatedEvents);
+                                        removed = true;
+                                        break;
+                                      }
+                                      await new Promise(res => setTimeout(res, 1000));
+                                    }
+                                    if (!removed) {
+                                      setEvents(await fetchAllEvents());
+                                    }
+                                  } catch (err: any) {
+                                    alert("Failed to delete event: " + (err.message || err));
+                                  }
+                                  setIsSubmitting(false);
+                                }}
+                              >
+                                Delete
+                              </Button>
+                            </div>
+                          )}
                         </CardContent>
                       </Card>
                     ))}
