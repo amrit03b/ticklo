@@ -23,15 +23,67 @@ import {
   Sparkles,
   Wallet,
   Loader2,
+  Clock,
+  Star,
 } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
+
+const MODULE_ADDR = "0x70beae59414f2e9115a4eaace4edd0409643069b056c8996def20d6e8d322f1a"
+const MODULE_NAME = "new_event_manager"
+const MODULE = `${MODULE_ADDR}::${MODULE_NAME}`
+
+interface Event {
+  id: number
+  name: string
+  description: string
+  image_url: string
+  price: string
+  date: string
+  time: string
+  venue: string
+  capacity: number
+  tickets_sold: number
+  status: string
+  category: string
+  organizer: string
+}
+
+async function fetchAllEvents(): Promise<Event[]> {
+  const organizers = [MODULE_ADDR]
+  let allEvents: Event[] = []
+  for (const addr of organizers) {
+    const url = `https://fullnode.testnet.aptoslabs.com/v1/accounts/${addr}/resource/${MODULE}::OrganizerEvents`
+    const res = await fetch(url)
+    if (!res.ok) continue
+    const data = await res.json()
+    const events = (data.data.events || []).map((e: any) => ({
+      id: Number(e.id),
+      name: e.name,
+      description: e.description,
+      image_url: e.image_url,
+      price: `${(Number(e.price) / 1e8).toFixed(2)} APT`,
+      date: e.date,
+      time: e.time,
+      venue: e.venue,
+      capacity: Number(e.capacity),
+      tickets_sold: Number(e.tickets_sold),
+      status: e.status,
+      category: e.category,
+      organizer: addr,
+    }))
+    allEvents = allEvents.concat(events)
+  }
+  return allEvents
+}
 
 export default function TickloHomepage() {
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
   const [isLoading, setIsLoading] = useState(true)
   const [visibleSections, setVisibleSections] = useState<Set<string>>(new Set())
   const { status, walletInfo } = useWallet()
+  const [hotEvents, setHotEvents] = useState<Event[]>([])
+  const [eventsLoading, setEventsLoading] = useState(true)
 
   const sectionRefs = useRef<{ [key: string]: HTMLElement | null }>({})
 
@@ -80,35 +132,15 @@ export default function TickloHomepage() {
     }
   }, [isLoading])
 
-  const upcomingEvents = [
-    {
-      id: 1,
-      title: "Neon Nights Festival",
-      date: "Aug 15, 2024",
-      location: "Cyber Arena, NYC",
-      price: "0.5 APT",
-      image: "/placeholder.svg?height=200&width=300",
-      trending: true,
-    },
-    {
-      id: 2,
-      title: "Web3 Summit 2024",
-      date: "Sep 22, 2024",
-      location: "Tech Hub, SF",
-      price: "1.2 APT",
-      image: "/placeholder.svg?height=200&width=300",
-      trending: false,
-    },
-    {
-      id: 3,
-      title: "Digital Art Expo",
-      date: "Oct 5, 2024",
-      location: "Meta Gallery, LA",
-      price: "0.3 APT",
-      image: "/placeholder.svg?height=200&width=300",
-      trending: true,
-    },
-  ]
+  useEffect(() => {
+    async function loadHotEvents() {
+      setEventsLoading(true)
+      const events = await fetchAllEvents()
+      setHotEvents(events)
+      setEventsLoading(false)
+    }
+    loadHotEvents()
+  }, [])
 
   const features = [
     {
@@ -289,50 +321,64 @@ export default function TickloHomepage() {
               <p className="text-2xl text-white/70 font-light">Don't miss out on these extraordinary experiences</p>
             </div>
 
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-10">
-              {upcomingEvents.map((event, index) => (
-                <Card
-                  key={event.id}
-                  className="bg-white/5 backdrop-blur-md border-white/10 rounded-3xl overflow-hidden hover:bg-white/10 transition-all duration-500 hover:scale-105 card-shadow group animate-fade-in"
-                  style={{
-                    animationDelay: `${index * 200}ms`,
-                  }}
-                >
-                  <div className="relative h-56 overflow-hidden">
-                    <Image
-                      src={event.image || "/placeholder.svg"}
-                      alt={event.title}
-                      fill
-                      className="object-cover group-hover:scale-110 transition-transform duration-700"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                    <div className="absolute top-6 right-6 flex gap-3">
-                      <Badge className="bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-full font-semibold px-4 py-2 animate-pulse">
-                        {event.price}
-                      </Badge>
-                      {event.trending && (
-                        <Badge className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-full font-semibold animate-bounce px-4 py-2">
-                          🔥 Trending
+            {eventsLoading ? (
+              <div className="text-center text-white text-xl py-12">Loading events...</div>
+            ) : hotEvents.length === 0 ? (
+              <div className="text-center text-white text-xl py-12">No events found</div>
+            ) : (
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-10">
+                {hotEvents.map((event, index) => (
+                  <Card
+                    key={event.id}
+                    className="bg-white/5 backdrop-blur-md border-white/10 rounded-3xl overflow-hidden hover:bg-white/10 transition-all duration-500 hover:scale-105 card-shadow group animate-fade-in"
+                    style={{
+                      animationDelay: `${index * 200}ms`,
+                    }}
+                  >
+                    <div className="relative h-56 overflow-hidden">
+                      <Image
+                        src={event.image_url || "/placeholder.svg"}
+                        alt={event.name}
+                        fill
+                        className="object-cover group-hover:scale-110 transition-transform duration-700"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                      <div className="absolute top-6 right-6 flex gap-3">
+                        <Badge className="bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-full font-semibold px-4 py-2 animate-pulse">
+                          {event.price}
                         </Badge>
-                      )}
+                        {event.tickets_sold < event.capacity && (
+                          <Badge className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-full font-semibold animate-bounce px-4 py-2">
+                            {event.tickets_sold === 0 ? "New" : "🔥 Trending"}
+                          </Badge>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <CardContent className="p-8">
-                    <h3 className="text-2xl font-bold text-white mb-4 group-hover:text-white transition-colors">
-                      {event.title}
-                    </h3>
-                    <div className="flex items-center text-white/70 mb-3">
-                      <Calendar className="w-5 h-5 mr-3 text-white" />
-                      <span className="text-base font-medium">{event.date}</span>
-                    </div>
-                    <div className="flex items-center text-white/70">
-                      <MapPin className="w-5 h-5 mr-3 text-white" />
-                      <span className="text-base font-medium">{event.location}</span>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                    <CardContent className="p-8">
+                      <h3 className="text-2xl font-bold text-white mb-4 group-hover:text-white transition-colors">
+                        {event.name}
+                      </h3>
+                      <div className="flex items-center text-white/70 mb-3">
+                        <Calendar className="w-5 h-5 mr-3 text-white" />
+                        <span className="text-base font-medium">{new Date(event.date).toLocaleDateString()}</span>
+                      </div>
+                      <div className="flex items-center text-white/70 mb-3">
+                        <Clock className="w-5 h-5 mr-3 text-white" />
+                        <span className="text-base font-medium">{event.time}</span>
+                      </div>
+                      <div className="flex items-center text-white/70">
+                        <MapPin className="w-5 h-5 mr-3 text-white" />
+                        <span className="text-base font-medium">{event.venue}</span>
+                      </div>
+                      <div className="flex items-center text-white/70 mt-3">
+                        <Star className="w-5 h-5 mr-3 text-white" />
+                        <span className="text-base font-medium">{event.tickets_sold}/{event.capacity} tickets</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
           </div>
         </section>
 
@@ -414,76 +460,6 @@ export default function TickloHomepage() {
                 </div>
               ))}
             </div>
-          </div>
-        </section>
-
-        {/* Wallet Preview Section */}
-        <section id="wallet" ref={(el) => (sectionRefs.current.wallet = el)} className="py-24">
-          <div className="container mx-auto px-6">
-            <Card className="bg-white/5 backdrop-blur-md border-white/10 rounded-3xl p-12 lg:p-16 hover:bg-white/10 transition-all duration-1000 card-shadow animate-fade-in">
-              <CardContent className="p-0 text-center">
-                {status === 'connected' && walletInfo ? (
-                  <div>
-                    <h2 className="text-5xl font-bold text-white mb-12">
-                      🎮 Your <span className="text-white italic">Dashboard</span>
-                    </h2>
-                    <div className="grid md:grid-cols-2 gap-10">
-                      <div className="bg-white/5 rounded-3xl p-8 border border-white/20 card-shadow animate-fade-in">
-                        <h3 className="text-2xl font-bold text-white mb-6">🎫 Your Tickets</h3>
-                        <div className="space-y-4">
-                          <div className="flex justify-between items-center text-white/80 animate-slide-in">
-                            <span className="font-medium text-lg">Neon Nights Festival</span>
-                            <Badge className="bg-gradient-to-r from-emerald-500 to-teal-500 font-semibold px-4 py-2 animate-pulse">
-                              Active
-                            </Badge>
-                          </div>
-                          <div className="flex justify-between items-center text-white/80 animate-slide-in delay-100">
-                            <span className="font-medium text-lg">Web3 Summit 2024</span>
-                            <Badge className="bg-gradient-to-r from-blue-500 to-indigo-500 font-semibold px-4 py-2 animate-pulse">
-                              Upcoming
-                            </Badge>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="bg-white/5 rounded-3xl p-8 border border-white/20 card-shadow animate-fade-in delay-200">
-                        <h3 className="text-2xl font-bold text-white mb-6">🏆 Badges Earned</h3>
-                        <div className="flex justify-center space-x-6">
-                          <div className="w-20 h-20 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center animate-bounce shadow-lg">
-                            <Award className="w-10 h-10 text-white" />
-                          </div>
-                          <div className="w-20 h-20 bg-gradient-to-br from-purple-400 to-pink-500 rounded-full flex items-center justify-center animate-bounce delay-100 shadow-lg">
-                            <Zap className="w-10 h-10 text-white" />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    <h2 className="text-5xl font-bold text-white mb-6">
-                      🔗 Connect Wallet to View Your <span className="text-white italic">Events</span>
-                    </h2>
-                    <p className="text-white/70 mb-12 font-light text-xl leading-relaxed max-w-2xl mx-auto">
-                      Access your tickets, badges, and complete event history in one elegant dashboard
-                    </p>
-                    <Button
-                      size="lg"
-                      className="bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white border-0 rounded-2xl px-12 py-4 text-xl font-semibold transition-all duration-300 hover:scale-105 shadow-2xl group"
-                      onClick={() => {
-                        // This will be handled by the navbar wallet button
-                        const walletButton = document.querySelector('[data-wallet-button]') as HTMLButtonElement
-                        if (walletButton) {
-                          walletButton.click()
-                        }
-                      }}
-                    >
-                      <Wallet className="w-6 h-6 mr-3 group-hover:animate-pulse" />
-                      Connect Wallet
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
           </div>
         </section>
 
