@@ -2,6 +2,7 @@ import type React from "react"
 import type { Metadata } from "next"
 import { Playfair_Display } from "next/font/google"
 import "./globals.css"
+import { WalletProvider } from "@/contexts/WalletContext"
 
 const playfair = Playfair_Display({
   subsets: ["latin"],
@@ -23,7 +24,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={playfair.className}>{children}</body>
+      <body className={playfair.className}>
+        <WalletProvider>
+          {children}
+        </WalletProvider>
+      </body>
     </html>
   )
 }

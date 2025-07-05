@@ -2,13 +2,14 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { useWallet } from "@/contexts/WalletContext"
 import {
   Calendar,
   MapPin,
@@ -26,6 +27,7 @@ import {
 } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
+import { WalletModal } from "@/components/wallet-modal"
 
 interface Event {
   id: number
@@ -42,41 +44,82 @@ interface Event {
   category: string
 }
 
-export default function OrganizerPage() {
-  const [isWalletConnected, setIsWalletConnected] = useState(false)
-  const [currentPage, setCurrentPage] = useState<"home" | "create" | "past">("home")
-  const [events, setEvents] = useState<Event[]>([
-    {
-      id: 1,
-      name: "Tech Conference 2024",
-      description: "Annual technology conference featuring industry leaders",
-      image: "/placeholder.svg?height=200&width=300",
-      price: "1.5 APT",
-      date: "2024-03-15",
-      time: "09:00",
-      venue: "Convention Center, Austin",
-      capacity: 500,
-      ticketsSold: 387,
-      status: "completed",
-      category: "Technology",
-    },
-    {
-      id: 2,
-      name: "Summer Music Festival",
-      description: "Three-day music festival with top artists",
-      image: "/placeholder.svg?height=200&width=300",
-      price: "2.0 APT",
-      date: "2024-07-20",
-      time: "18:00",
-      venue: "Riverside Park, Denver",
-      capacity: 2000,
-      ticketsSold: 1847,
-      status: "completed",
-      category: "Music",
-    },
-  ])
+// Helper types
+interface OnChainEvent {
+  id: string | number;
+  name: string;
+  description: string;
+  price: string | number;
+  date: string;
+  time: string;
+  venue: string;
+  capacity: string | number;
+  category: string;
+}
 
-  const [newEvent, setNewEvent] = useState({
+interface NewEvent {
+  name: string;
+  description: string;
+  image: string;
+  price: string;
+  date: string;
+  time: string;
+  venue: string;
+  capacity: string;
+  category: string;
+}
+
+const APTOS_MODULE = "0x70beae59414f2e9115a4eaace4edd0409643069b056c8996def20d6e8d322f1a::event_manager";
+
+async function createEventOnChain(walletInfo: any, newEvent: NewEvent) {
+  if (!window.petra || typeof window.petra.signAndSubmitTransaction !== 'function' || !walletInfo) throw new Error("Wallet not connected");
+  const payload = {
+    type: "entry_function_payload",
+    function: `${APTOS_MODULE}::create_event`,
+    type_arguments: [],
+    arguments: [
+      newEvent.name,
+      newEvent.description,
+      Math.round(Number(newEvent.price) * 1e8), // price in Octas
+      newEvent.date,
+      newEvent.time,
+      newEvent.venue,
+      Number(newEvent.capacity),
+      newEvent.category,
+    ],
+  };
+  const tx = await window.petra.signAndSubmitTransaction(payload);
+  // Wait for confirmation
+  await fetch(`https://fullnode.testnet.aptoslabs.com/v1/transactions/by_hash/${tx.hash}`);
+}
+
+async function fetchEventsForOrganizer(address: string): Promise<Event[]> {
+  const url = `https://fullnode.testnet.aptoslabs.com/v1/accounts/${address}/resource/${APTOS_MODULE}::OrganizerEvents`;
+  const res = await fetch(url);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.data.events || []).map((e: OnChainEvent, i: number): Event => ({
+    id: Number(e.id),
+    name: e.name,
+    description: e.description,
+    image: "/placeholder.svg?height=200&width=300", // No image on-chain
+    price: `${(Number(e.price) / 1e8).toFixed(2)} APT`,
+    date: e.date,
+    time: e.time,
+    venue: e.venue,
+    capacity: Number(e.capacity),
+    ticketsSold: 0, // Not tracked on-chain yet
+    status: "completed", // Default for now
+    category: e.category,
+  }));
+}
+
+export default function OrganizerPage() {
+  const [currentPage, setCurrentPage] = useState<"home" | "create" | "past">("home")
+  const { status, walletInfo } = useWallet()
+  const [events, setEvents] = useState<Event[]>([])
+
+  const [newEvent, setNewEvent] = useState<NewEvent>({
     name: "",
     description: "",
     image: "",
@@ -90,41 +133,40 @@ export default function OrganizerPage() {
 
   const categories = ["Music", "Technology", "Art", "Sports", "Business"]
 
-  const handleCreateEvent = (e: React.FormEvent) => {
+  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false)
+
+  useEffect(() => {
+    if (status === 'connected' && walletInfo?.address) {
+      fetchEventsForOrganizer(walletInfo.address).then(setEvents)
+    }
+  }, [status, walletInfo])
+
+  const handleCreateEvent = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!isWalletConnected) {
+    if (status !== 'connected' || !walletInfo) {
       alert("Please connect your wallet first")
       return
     }
-
-    const event: Event = {
-      id: events.length + 1,
-      name: newEvent.name,
-      description: newEvent.description,
-      image: newEvent.image || "/placeholder.svg?height=200&width=300",
-      price: newEvent.price,
-      date: newEvent.date,
-      time: newEvent.time,
-      venue: newEvent.venue,
-      capacity: Number.parseInt(newEvent.capacity),
-      ticketsSold: 0,
-      status: "upcoming",
-      category: newEvent.category,
+    try {
+      await createEventOnChain(walletInfo, newEvent)
+      setNewEvent({
+        name: "",
+        description: "",
+        image: "",
+        price: "",
+        date: "",
+        time: "",
+        venue: "",
+        capacity: "",
+        category: "",
+      })
+      setCurrentPage("past")
+      // Refetch events from chain
+      const chainEvents = await fetchEventsForOrganizer(walletInfo.address)
+      setEvents(chainEvents)
+    } catch (err: any) {
+      alert("Failed to create event on chain: " + (err.message || err))
     }
-
-    setEvents([...events, event])
-    setNewEvent({
-      name: "",
-      description: "",
-      image: "",
-      price: "",
-      date: "",
-      time: "",
-      venue: "",
-      capacity: "",
-      category: "",
-    })
-    setCurrentPage("past")
   }
 
   const organzerBenefits = [
@@ -205,15 +247,15 @@ export default function OrganizerPage() {
                   Past Events
                 </button>
                 <Button
-                  onClick={() => setIsWalletConnected(!isWalletConnected)}
+                  onClick={() => setIsWalletModalOpen(true)}
                   className={`${
-                    isWalletConnected
+                    status === 'connected' && walletInfo
                       ? "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
                       : "bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600"
                   } text-white border-0 rounded-2xl px-8 py-3 font-semibold transition-all duration-300 hover:scale-105 shadow-lg`}
                 >
                   <Wallet className="w-5 h-5 mr-2" />
-                  {isWalletConnected ? "Connected" : "Connect Wallet"}
+                  {status === 'connected' && walletInfo ? "Connected" : "Connect Wallet"}
                 </Button>
               </div>
 
@@ -597,6 +639,7 @@ export default function OrganizerPage() {
             </section>
           )}
         </div>
+        <WalletModal isOpen={isWalletModalOpen} onClose={() => setIsWalletModalOpen(false)} />
       </div>
     </div>
   )

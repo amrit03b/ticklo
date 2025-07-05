@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Navbar } from "@/components/navbar"
+import { useWallet } from "@/contexts/WalletContext"
 import {
   Calendar,
   MapPin,
@@ -27,10 +28,10 @@ import Image from "next/image"
 import Link from "next/link"
 
 export default function TickloHomepage() {
-  const [isWalletConnected, setIsWalletConnected] = useState(false)
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
   const [isLoading, setIsLoading] = useState(true)
   const [visibleSections, setVisibleSections] = useState<Set<string>>(new Set())
+  const { status, walletInfo } = useWallet()
 
   const sectionRefs = useRef<{ [key: string]: HTMLElement | null }>({})
 
@@ -211,10 +212,7 @@ export default function TickloHomepage() {
       </div>
 
       <div className="relative z-10">
-        <Navbar
-          isWalletConnected={isWalletConnected}
-          onWalletConnect={() => setIsWalletConnected(!isWalletConnected)}
-        />
+        <Navbar />
 
         {/* Hero Section */}
         <section
@@ -424,7 +422,7 @@ export default function TickloHomepage() {
           <div className="container mx-auto px-6">
             <Card className="bg-white/5 backdrop-blur-md border-white/10 rounded-3xl p-12 lg:p-16 hover:bg-white/10 transition-all duration-1000 card-shadow animate-fade-in">
               <CardContent className="p-0 text-center">
-                {isWalletConnected ? (
+                {status === 'connected' && walletInfo ? (
                   <div>
                     <h2 className="text-5xl font-bold text-white mb-12">
                       🎮 Your <span className="text-white italic">Dashboard</span>
@@ -471,7 +469,13 @@ export default function TickloHomepage() {
                     <Button
                       size="lg"
                       className="bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white border-0 rounded-2xl px-12 py-4 text-xl font-semibold transition-all duration-300 hover:scale-105 shadow-2xl group"
-                      onClick={() => setIsWalletConnected(true)}
+                      onClick={() => {
+                        // This will be handled by the navbar wallet button
+                        const walletButton = document.querySelector('[data-wallet-button]') as HTMLButtonElement
+                        if (walletButton) {
+                          walletButton.click()
+                        }
+                      }}
                     >
                       <Wallet className="w-6 h-6 mr-3 group-hover:animate-pulse" />
                       Connect Wallet

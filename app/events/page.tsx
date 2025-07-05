@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Calendar, MapPin, Users, Search, Heart, Share2, ArrowLeft, Clock, Star, Wallet } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
+import { useWallet } from "@/contexts/WalletContext"
 
 interface Event {
   id: number
@@ -29,10 +30,10 @@ interface Event {
 }
 
 export default function EventsPage() {
-  const [isWalletConnected, setIsWalletConnected] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [isLoading, setIsLoading] = useState(true)
+  const { status, walletInfo } = useWallet()
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -179,15 +180,21 @@ export default function EventsPage() {
                   For Organizers
                 </Link>
                 <Button
-                  onClick={() => setIsWalletConnected(!isWalletConnected)}
+                  onClick={() => {
+                    // This will be handled by the navbar wallet button
+                    const walletButton = document.querySelector('[data-wallet-button]') as HTMLButtonElement
+                    if (walletButton) {
+                      walletButton.click()
+                    }
+                  }}
                   className={`${
-                    isWalletConnected
+                    status === 'connected' && walletInfo
                       ? "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
                       : "bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600"
                   } text-white border-0 rounded-2xl px-8 py-3 font-semibold transition-all duration-300 hover:scale-105 shadow-lg`}
                 >
                   <Wallet className="w-5 h-5 mr-2" />
-                  {isWalletConnected ? "Connected" : "Connect Wallet"}
+                  {status === 'connected' && walletInfo ? "Connected" : "Connect Wallet"}
                 </Button>
               </div>
 
