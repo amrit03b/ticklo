@@ -7,6 +7,7 @@ import Image from "next/image"
 import { useWallet } from "@/contexts/WalletContext"
 import { WalletModal } from "@/components/wallet-modal"
 import { formatAddress } from "@/lib/wallet"
+import Link from "next/link"
 
 export function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
@@ -52,6 +53,9 @@ export function Navbar() {
               >
                 How It Works
               </a>
+              <Link href="/profile" className="text-white/80 hover:text-white transition-all duration-300 font-medium text-lg">
+                Profile
+              </Link>
               
               {/* Wallet Button */}
               {status === 'connected' && walletInfo ? (
@@ -121,6 +125,9 @@ export function Navbar() {
                 <a href="#how-it-works" className="text-white/80 hover:text-white transition-colors font-medium text-lg">
                   How It Works
                 </a>
+                <Link href="/profile" className="text-white/80 hover:text-white transition-colors font-medium text-lg">
+                  Profile
+                </Link>
                 <Button
                   onClick={() => setIsWalletModalOpen(true)}
                   className={`${
