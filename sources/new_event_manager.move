@@ -154,4 +154,25 @@ module 0x70beae59414f2e9115a4eaace4edd0409643069b056c8996def20d6e8d322f1a::new_e
             vector::empty<Event>()
         }
     }
+
+    public entry fun create_ticklo_collection(user: &signer) {
+        let coll = string::utf8(b"Ticklo Tickets");
+        let desc = string::utf8(b"Event tickets for Ticklo");
+        let uri = string::utf8(b"https://raw.githubusercontent.com/amrit03b/ticklo/main/public/ticklo-logo.png"); // non-empty logo URI
+
+        // Create a mutable vector for `mutate_settings`
+        let mutate_vec = vector::empty<bool>();
+        vector::push_back(&mut mutate_vec, true);  // allow description mutability
+        vector::push_back(&mut mutate_vec, true);  // allow URI mutability
+
+        token::create_collection_script(
+            user,
+            coll,
+            desc,
+            uri,
+            0u64,       // unlimited supply
+            mutate_vec  // pass owned vector<bool>
+        );
+    }
+
 }

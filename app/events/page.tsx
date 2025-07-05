@@ -83,6 +83,31 @@ async function buyTicketOnChain(organizer: string, eventId: number, walletInfo: 
   await fetch(`https://fullnode.testnet.aptoslabs.com/v1/transactions/by_hash/${tx.hash}`);
 }
 
+// Helper to check if the collection exists for the user
+async function doesCollectionExist(address: string): Promise<boolean> {
+  // Use the Aptos Indexer API (testnet endpoint)
+  const url = `https://indexer-testnet.staging.gcp.aptosdev.com/v1/accounts/${address}/collections`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return false;
+    const data = await res.json();
+    return (data?.collections || data)?.some?.((col: any) => col.collection_name === "Ticklo Tickets");
+  } catch {
+    return false;
+  }
+}
+
+async function createTickloCollection(walletInfo: any) {
+  if (!window.petra || typeof window.petra.signAndSubmitTransaction !== 'function' || !walletInfo) throw new Error("Wallet not connected");
+  const payload = {
+    type: "entry_function_payload",
+    function: `${MODULE}::create_ticklo_collection`,
+    type_arguments: [],
+    arguments: [],
+  };
+  await window.petra.signAndSubmitTransaction(payload);
+}
+
 export default function EventsPage() {
   const { status, walletInfo } = useWallet()
   const [events, setEvents] = useState<Event[]>([])
@@ -106,20 +131,25 @@ export default function EventsPage() {
     (selectedCategory === "all" || ev.category === selectedCategory)
   )
 
-  async function handleBuy(ev: Event) {
+  async function handleBuy(event: Event) {
     if (!walletInfo) {
-      alert("Connect your wallet first")
-      return
+      alert("Please connect your wallet to buy a ticket.");
+      return;
     }
-    setBuyingId(ev.id)
+    setBuyingId(event.id);
     try {
-      await buyTicketOnChain(ev.organizer, ev.id, walletInfo)
-      alert("Ticket purchased!")
-      setEvents(await fetchAllEvents())
+      // Check if collection exists first
+      const exists = await doesCollectionExist(walletInfo.address);
+      if (!exists) {
+        await createTickloCollection(walletInfo);
+      }
+      await buyTicketOnChain(event.organizer, event.id, walletInfo);
+      alert("Ticket purchased! Check your profile for your NFT ticket.");
+      setEvents(await fetchAllEvents());
     } catch (err: any) {
-      alert("Failed: " + (err.message || err))
+      alert("Failed to buy ticket: " + (err.message || err));
     }
-    setBuyingId(null)
+    setBuyingId(null);
   }
 
   if (loading) {

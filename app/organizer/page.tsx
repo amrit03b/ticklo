@@ -122,10 +122,36 @@ async function fetchEventsForOrganizer(address: string): Promise<Event[]> {
   }));
 }
 
+// Helper to check if the collection exists for the user
+async function doesCollectionExist(address: string): Promise<boolean> {
+  // Use the Aptos Indexer API (testnet endpoint)
+  const url = `https://indexer-testnet.staging.gcp.aptosdev.com/v1/accounts/${address}/collections`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return false;
+    const data = await res.json();
+    return (data?.collections || data)?.some?.((col: any) => col.collection_name === "Ticklo Tickets");
+  } catch {
+    return false;
+  }
+}
+
+async function createTickloCollection(walletInfo: any) {
+  if (!window.petra || typeof window.petra.signAndSubmitTransaction !== 'function' || !walletInfo) throw new Error("Wallet not connected");
+  const payload = {
+    type: "entry_function_payload",
+    function: `${MODULE}::create_ticklo_collection`,
+    type_arguments: [],
+    arguments: [],
+  };
+  await window.petra.signAndSubmitTransaction(payload);
+}
+
 export default function OrganizerPage() {
   const [currentPage, setCurrentPage] = useState<"home" | "create" | "past">("home")
   const { status, walletInfo } = useWallet()
   const [events, setEvents] = useState<Event[]>([])
+  const [buyingId, setBuyingId] = useState<number | null>(null)
 
   const [newEvent, setNewEvent] = useState<NewEvent>({
     name: "",
@@ -298,6 +324,27 @@ export default function OrganizerPage() {
       allEvents = allEvents.concat(events);
     }
     return allEvents;
+  }
+
+  async function handleBuy(event: Event) {
+    if (!walletInfo) {
+      alert("Please connect your wallet to buy a ticket.");
+      return;
+    }
+    setBuyingId(event.id);
+    try {
+      // Check if collection exists first
+      const exists = await doesCollectionExist(walletInfo.address);
+      if (!exists) {
+        await createTickloCollection(walletInfo);
+      }
+      await buyTicketOnChain(event.organizer, event.id, walletInfo);
+      alert("Ticket purchased! Check your profile for your NFT ticket.");
+      setEvents(await fetchAllEvents());
+    } catch (err: any) {
+      alert("Failed to buy ticket: " + (err.message || err));
+    }
+    setBuyingId(null);
   }
 
   return (
