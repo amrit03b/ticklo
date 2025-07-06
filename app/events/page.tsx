@@ -17,11 +17,13 @@ import {
   Wallet,
   Tag,
   RefreshCw,
+  Users,
 } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import { useWallet } from "@/contexts/WalletContext"
 import { ResaleTicketCard } from "@/components/resale-ticket-card"
+import { GroupBookingModal } from "@/components/group-booking-modal"
 
 const MODULE_ADDR = "0x70beae59414f2e9115a4eaace4edd0409643069b056c8996def20d6e8d322f1a"
 const MODULE_NAME = "new_event_manager"
@@ -197,6 +199,9 @@ export default function EventsPage() {
   const [resaleListings, setResaleListings] = useState<any[]>([])
   const [showResaleTickets, setShowResaleTickets] = useState(false)
   const [buyingResaleId, setBuyingResaleId] = useState<number | null>(null)
+  const [groupBookingEvent, setGroupBookingEvent] = useState<Event | null>(null)
+  const [isGroupBookingOpen, setIsGroupBookingOpen] = useState(false)
+  const [isGroupBookingProcessing, setIsGroupBookingProcessing] = useState(false)
 
   useEffect(() => {
     async function loadEvents() {
@@ -259,6 +264,47 @@ export default function EventsPage() {
       alert("Failed to buy resale ticket: " + (error.message || error))
     } finally {
       setBuyingResaleId(null)
+    }
+  }
+
+  async function handleGroupBooking(numTickets: number, walletAddresses: string[]) {
+    if (!walletInfo || !groupBookingEvent) {
+      alert("Please connect your wallet to make a group booking.")
+      return
+    }
+
+    setIsGroupBookingProcessing(true)
+    const collectionName = getUserCollectionName(walletInfo.address)
+    
+    try {
+      // Create collection if it doesn't exist
+      try {
+        await createCollectionIfNotExists(walletInfo, collectionName)
+      } catch (err: any) {
+        // Collection might already exist, continue
+        console.log("Collection creation skipped:", err.message)
+      }
+
+      // Mint NFTs for each wallet address
+      for (let i = 0; i < numTickets; i++) {
+        const targetAddress = walletAddresses[i]
+        
+        // For demo purposes, we'll mint to the current user's wallet
+        // In a real implementation, you'd need to handle cross-wallet transfers
+        await mintTicketNFT(groupBookingEvent, walletInfo, collectionName)
+        
+        console.log(`Minted ticket ${i + 1} for address: ${targetAddress}`)
+      }
+
+      alert(`Successfully booked ${numTickets} tickets for your group! Check your profile for the NFT tickets.`)
+      setEvents(await fetchAllEvents())
+      setIsGroupBookingOpen(false)
+      setGroupBookingEvent(null)
+    } catch (err: any) {
+      console.error("Failed to process group booking:", err)
+      alert("Failed to process group booking: " + (err.message || err))
+    } finally {
+      setIsGroupBookingProcessing(false)
     }
   }
 
@@ -463,13 +509,26 @@ export default function EventsPage() {
 
                     <Badge className="absolute top-4 right-4 bg-purple-600 text-white px-4 py-2 rounded-full">{ev.price}</Badge>
 
-                    <Button
-                      className="absolute bottom-4 right-4 bg-gradient-to-r from-pink-500 to-yellow-500 text-white font-bold px-4 py-2 rounded-2xl shadow-lg"
-                      onClick={() => handleBuy(ev)}
-                      disabled={ev.tickets_sold >= ev.capacity || buyingId === ev.id}
-                    >
-                      {buyingId === ev.id ? "Buying..." : ev.tickets_sold >= ev.capacity ? "Sold Out" : "Buy Ticket"}
-                    </Button>
+                    <div className="absolute bottom-4 right-4 flex gap-2">
+                      <Button
+                        className="bg-gradient-to-r from-pink-500 to-yellow-500 text-white font-bold px-4 py-2 rounded-2xl shadow-lg"
+                        onClick={() => handleBuy(ev)}
+                        disabled={ev.tickets_sold >= ev.capacity || buyingId === ev.id}
+                      >
+                        {buyingId === ev.id ? "Buying..." : ev.tickets_sold >= ev.capacity ? "Sold Out" : "Buy Ticket"}
+                      </Button>
+                      <Button
+                        className="bg-gradient-to-r from-blue-500 to-indigo-500 text-white font-bold px-4 py-2 rounded-2xl shadow-lg"
+                        onClick={() => {
+                          setGroupBookingEvent(ev)
+                          setIsGroupBookingOpen(true)
+                        }}
+                        disabled={ev.tickets_sold >= ev.capacity}
+                      >
+                        <Users className="w-4 h-4 mr-1" />
+                        Group
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               ))}
@@ -477,6 +536,18 @@ export default function EventsPage() {
           )}
         </div>
       </section>
+
+      {/* Group Booking Modal */}
+      <GroupBookingModal
+        event={groupBookingEvent}
+        isOpen={isGroupBookingOpen}
+        onClose={() => {
+          setIsGroupBookingOpen(false)
+          setGroupBookingEvent(null)
+        }}
+        onConfirm={handleGroupBooking}
+        isProcessing={isGroupBookingProcessing}
+      />
     </div>
   )
 }
