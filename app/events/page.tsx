@@ -15,10 +15,13 @@ import {
   ArrowLeft,
   Star,
   Wallet,
+  Tag,
+  RefreshCw,
 } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import { useWallet } from "@/contexts/WalletContext"
+import { ResaleTicketCard } from "@/components/resale-ticket-card"
 
 const MODULE_ADDR = "0x70beae59414f2e9115a4eaace4edd0409643069b056c8996def20d6e8d322f1a"
 const MODULE_NAME = "new_event_manager"
@@ -191,15 +194,73 @@ export default function EventsPage() {
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [buyingId, setBuyingId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
+  const [resaleListings, setResaleListings] = useState<any[]>([])
+  const [showResaleTickets, setShowResaleTickets] = useState(false)
+  const [buyingResaleId, setBuyingResaleId] = useState<number | null>(null)
 
   useEffect(() => {
     async function loadEvents() {
-      const evts = await fetchAllEvents()
+      const [evts, listings] = await Promise.all([
+        fetchAllEvents(),
+        fetchResaleListings()
+      ])
       setEvents(evts)
+      setResaleListings(listings)
       setLoading(false)
     }
     loadEvents()
   }, [])
+
+  async function fetchResaleListings(): Promise<any[]> {
+    try {
+      const url = `https://fullnode.testnet.aptoslabs.com/v1/accounts/${MODULE_ADDR}/resource/${MODULE}::ResaleMarket`
+      const res = await fetch(url)
+      
+      if (!res.ok) {
+        console.log("ResaleMarket not found, returning empty list")
+        return []
+      }
+      
+      const data = await res.json()
+      return data.data.listings || []
+    } catch (error) {
+      console.error('Error fetching resale listings:', error)
+      return []
+    }
+  }
+
+  async function buyResaleTicket(listingId: number) {
+    if (!walletInfo) {
+      alert("Please connect your wallet to buy a resale ticket.")
+      return
+    }
+
+    setBuyingResaleId(listingId)
+    try {
+      if (!window.petra || typeof window.petra.signAndSubmitTransaction !== 'function') {
+        throw new Error("Wallet not connected")
+      }
+
+      const payload = {
+        type: "entry_function_payload",
+        function: `${MODULE}::buy_resale_ticket`,
+        type_arguments: [],
+        arguments: [listingId],
+      }
+
+      await window.petra.signAndSubmitTransaction(payload)
+      alert("Resale ticket purchased successfully!")
+      
+      // Refresh listings
+      const newListings = await fetchResaleListings()
+      setResaleListings(newListings)
+    } catch (error: any) {
+      console.error("Failed to buy resale ticket:", error)
+      alert("Failed to buy resale ticket: " + (error.message || error))
+    } finally {
+      setBuyingResaleId(null)
+    }
+  }
 
   const filteredEvents = events.filter(ev =>
     (ev.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -314,9 +375,58 @@ export default function EventsPage() {
                 </Button>
               ))}
             </div>
+            <Button
+              onClick={() => setShowResaleTickets(!showResaleTickets)}
+              variant="outline"
+              className="border-orange-500/50 text-orange-400 hover:bg-orange-500/10 bg-transparent rounded-2xl"
+            >
+              <Tag className="w-4 h-4 mr-2" />
+              {showResaleTickets ? "Hide" : "Show"} Resale Tickets
+            </Button>
           </div>
         </div>
       </section>
+
+      {/* Resale Tickets Section */}
+      {showResaleTickets && (
+        <section className="pb-16">
+          <div className="container mx-auto px-6">
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-4xl font-bold text-white">Resale Tickets</h2>
+              <Button
+                onClick={() => {
+                  fetchResaleListings().then(setResaleListings)
+                }}
+                variant="outline"
+                className="border-white/20 text-white hover:bg-white/10 bg-transparent"
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Refresh
+              </Button>
+            </div>
+            
+            {resaleListings.length === 0 ? (
+              <div className="text-center py-16 bg-white/5 rounded-3xl border border-white/10">
+                <Tag className="w-16 h-16 text-white/50 mx-auto mb-4" />
+                <h3 className="text-2xl font-semibold text-white mb-2">No Resale Tickets Available</h3>
+                <p className="text-white/70">Check back later for tickets listed by other users.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {resaleListings.map((listing) => (
+                  <ResaleTicketCard
+                    key={listing.listing_id}
+                    listing={listing}
+                    onBuyResale={buyResaleTicket}
+                    isBuying={buyingResaleId === listing.listing_id}
+                    currentUserAddress={walletInfo?.address}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* Events Grid */}
       <section className="pb-24">
